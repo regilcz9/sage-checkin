@@ -264,15 +264,15 @@
 
   <div class="card">
     <h2>Morning Check-in</h2>
-    <p>Set a daily notification time. Tap it each morning to open your planning chat with Sage.</p>
+    <p>Set a daily alarm time. You'll get a vibration & sound alert each morning to start your planning chat with Sage.</p>
 
     <div class="time-row">
-      <span class="time-label">Notify me at</span>
+      <span class="time-label">Alarm time</span>
       <input type="time" id="alarmTime" value="07:30" />
     </div>
 
-    <button class="btn-primary" onclick="scheduleNotification()">Enable daily notification</button>
-    <button class="btn-secondary" onclick="testNotification()">Send a test notification now</button>
+    <button class="btn-primary" onclick="scheduleAlarm()">Enable daily alarm</button>
+    <button class="btn-secondary" onclick="testAlarm()">Send a test alarm now</button>
 
     <div class="status" id="status">
       <div class="dot"></div>
@@ -292,8 +292,8 @@
   </div>
 
   <script>
-    let scheduledTimeout = null;
-    let scheduledInterval = null;
+    let alarmCheckInterval = null;
+    let alarmFiredToday = false;
 
     function showStatus(msg, type) {
       const el = document.getElementById('status');
@@ -301,70 +301,120 @@
       document.getElementById('statusText').textContent = msg;
     }
 
-    function msUntil(hh, mm) {
-      const now = new Date();
-      const target = new Date();
-      target.setHours(hh, mm, 0, 0);
-      if (target <= now) target.setDate(target.getDate() + 1);
-      return target - now;
-    }
-
-    function fireNotification() {
-      if (Notification.permission !== 'granted') return;
-      const n = new Notification('Daily planning check-in with Sage', {
-        body: 'Tap to plan your day.',
-        tag: 'sage-checkin',
-        requireInteraction: true
-      });
-      n.onclick = () => { window.open('https://claude.ai', '_blank'); n.close(); };
-    }
-
-    async function scheduleNotification() {
-      if (!('Notification' in window)) {
-        showStatus('Your browser does not support notifications.', 'error'); return;
+    function triggerAlarm() {
+      // Vibrate the phone
+      if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
       }
 
-      const perm = await Notification.requestPermission();
-      if (perm !== 'granted') {
-        showStatus('Notification permission denied. Please allow it in your browser settings.', 'error'); return;
-      }
+      // Play sound alert
+      playAlertSound();
 
+      // Show visual alert
+      showAlertModal();
+
+      // Prevent multiple fires in same day
+      alarmFiredToday = true;
+    }
+
+    function playAlertSound() {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    }
+
+    function showAlertModal() {
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+      `;
+
+      const content = document.createElement('div');
+      content.style.cssText = `
+        background: white;
+        padding: 2rem;
+        border-radius: 20px;
+        text-align: center;
+        max-width: 300px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      `;
+
+      content.innerHTML = `
+        <h2 style="color: #2b1f1a; margin: 0 0 1rem; font-size: 1.5rem; font-family: 'Playfair Display', serif;">Good morning! ☀️</h2>
+        <p style="color: #7a6560; margin: 0 0 1.5rem; font-size: 1rem;">Daily planning check-in with Sage</p>
+        <button onclick="this.parentElement.parentElement.remove(); window.location.href='https://claude.ai'" style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #e8715a, #c96a2e); color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 500; cursor: pointer; margin-bottom: 0.5rem;">
+          Open Sage (Claude)
+        </button>
+        <button onclick="this.parentElement.parentElement.remove()" style="width: 100%; padding: 0.75rem; background: #f5ede3; color: #2b1f1a; border: none; border-radius: 12px; font-size: 0.9rem; cursor: pointer;">
+          Dismiss
+        </button>
+      `;
+
+      modal.appendChild(content);
+      document.body.appendChild(modal);
+    }
+
+    function scheduleAlarm() {
       const val = document.getElementById('alarmTime').value;
       const [hh, mm] = val.split(':').map(Number);
 
-      // clear any previous schedule
-      clearTimeout(scheduledTimeout);
-      clearInterval(scheduledInterval);
+      // Clear any previous interval
+      if (alarmCheckInterval) clearInterval(alarmCheckInterval);
+      alarmFiredToday = false;
 
-      // schedule first fire then repeat every 24h
-      scheduledTimeout = setTimeout(() => {
-        fireNotification();
-        scheduledInterval = setInterval(fireNotification, 24 * 60 * 60 * 1000);
-      }, msUntil(hh, mm));
+      // Check time every 10 seconds
+      alarmCheckInterval = setInterval(() => {
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
 
-      // format time nicely
+        // Trigger alarm when time matches (and hasn't fired today)
+        if (currentHours === hh && currentMinutes === mm && !alarmFiredToday) {
+          triggerAlarm();
+        }
+
+        // Reset daily at midnight
+        if (currentHours === 0 && currentMinutes === 0) {
+          alarmFiredToday = false;
+        }
+      }, 10000); // Check every 10 seconds
+
+      // Format time nicely
       const display = new Date();
       display.setHours(hh, mm, 0, 0);
       const formatted = display.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      showStatus(`Notification scheduled for ${formatted} every day!`, 'success');
+      showStatus(`Alarm set for ${formatted} every day!`, 'success');
 
       // show next alarm time
-      const next = new Date(Date.now() + msUntil(hh, mm));
+      const next = new Date();
+      next.setHours(hh, mm, 0, 0);
+      if (next < new Date()) next.setDate(next.getDate() + 1);
       document.getElementById('nextAlarm').innerHTML =
-        `Next notification: <span>${next.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})} at ${formatted}</span>`;
+        `Next alarm: <span>${next.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})} at ${formatted}</span>`;
     }
 
-    async function testNotification() {
-      if (!('Notification' in window)) {
-        showStatus('Your browser does not support notifications.', 'error'); return;
-      }
-      const perm = await Notification.requestPermission();
-      if (perm !== 'granted') {
-        showStatus('Permission denied — allow notifications first.', 'error'); return;
-      }
-      fireNotification();
-      showStatus('Test notification sent!', 'info');
+    function testAlarm() {
+      showStatus('Test alarm triggered!', 'info');
+      triggerAlarm();
     }
   </script>
 </body>
